@@ -126,16 +126,6 @@ public class ContactSyncService extends IntentService {
             zip.close();
         }
 
-//
-//
-//        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(sb.length());
-//        GZIPOutputStream gzipOutputStream = new GZIPOutputStream(outputStream);
-//        gzipOutputStream.write(sb.toString().getBytes());
-//
-//        FileOutputStream os = new FileOutputStream(gzipContacts);
-//        Writer writer = new OutputStreamWriter(new GZIPOutputStream(os), "UTF-8");
-//        writer.write(sb.toString(), 0, sb.length());
-
     }
 
     private static class Contact {
