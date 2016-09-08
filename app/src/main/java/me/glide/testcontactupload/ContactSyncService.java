@@ -4,6 +4,7 @@ import android.app.IntentService;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
+import android.os.Environment;
 import android.provider.ContactsContract;
 import android.provider.ContactsContract.Data;
 import android.text.TextUtils;
@@ -13,9 +14,13 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.zip.GZIPOutputStream;
 
 /**
  * An {@link IntentService} subclass for handling asynchronous task requests in
@@ -92,14 +97,45 @@ public class ContactSyncService extends IntentService {
             if (contacts!=null) contacts.close();
         }
 
+        StringBuilder sb = new StringBuilder(contactArrayList.size() * 75);
         for (Contact contact : contactArrayList.values()) {
             try {
-                Log.d(TAG, contact.toJson().toString(2));
+                sb.append(contact.toJson().toString()).append('\n');
             } catch (JSONException e) {
                 e.printStackTrace();
             }
         }
+        Log.w(TAG, "StringBuildSize = " + sb.length());
+
+        try {
+            writeGzipedData(sb);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         Log.wtf(TAG, "this took: " + (System.currentTimeMillis() - now) + " millis to run");
+    }
+
+    private void writeGzipedData(StringBuilder sb) throws IOException {
+        File path = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        File gzipContacts = new File(path, "contacts.gz");
+        GZIPOutputStream zip = new GZIPOutputStream(new FileOutputStream(gzipContacts));
+        try {
+            zip.write(sb.toString().getBytes());
+            zip.finish();
+        } finally {
+            zip.close();
+        }
+
+//
+//
+//        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(sb.length());
+//        GZIPOutputStream gzipOutputStream = new GZIPOutputStream(outputStream);
+//        gzipOutputStream.write(sb.toString().getBytes());
+//
+//        FileOutputStream os = new FileOutputStream(gzipContacts);
+//        Writer writer = new OutputStreamWriter(new GZIPOutputStream(os), "UTF-8");
+//        writer.write(sb.toString(), 0, sb.length());
+
     }
 
     private static class Contact {
