@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.provider.ContactsContract;
+import android.provider.ContactsContract.Data;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -13,6 +14,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -43,28 +45,46 @@ public class ContactSyncService extends IntentService {
 
     @Override
     protected void onHandleIntent(Intent intent) {
+        final long now = System.currentTimeMillis();
         String[] selectionArgs = {
-                ContactsContract.Contacts._ID,
-                ContactsContract.Contacts.HAS_PHONE_NUMBER,
-                ContactsContract.Contacts.DISPLAY_NAME_PRIMARY
+        ContactsContract.Data.CONTACT_ID,
+        ContactsContract.Data.MIMETYPE,
+        ContactsContract.Data.DATA1,
+        ContactsContract.Data.DATA4,
+        ContactsContract.Data.DISPLAY_NAME
         };
 
         Cursor contacts = null;
-        ArrayList<Contact> contactArrayList = new ArrayList<Contact>();
+        HashMap<String, Contact> contactArrayList = new HashMap<String, Contact>();
         try {
-            contacts = getContentResolver().query(ContactsContract.Contacts.CONTENT_URI, selectionArgs, null, null, null);
+            contacts = getContentResolver().query(ContactsContract.Data.CONTENT_URI, selectionArgs, Data.MIMETYPE + "=? OR " + Data.MIMETYPE + "=?",
+                    new String[]{ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE, ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE},
+                    Data.CONTACT_ID);
+            ;
             if (contacts != null && contacts.moveToFirst()) {
-                int lookupKeyIndex = contacts.getColumnIndex(selectionArgs[0]);
-                int hasNumber = contacts.getColumnIndex(selectionArgs[1]);
-                int name = contacts.getColumnIndex(selectionArgs[2]);
+                int contactIdIndex = contacts.getColumnIndex(ContactsContract.Data.CONTACT_ID);
+                int typeIndex = contacts.getColumnIndex(ContactsContract.Data.MIMETYPE);
+                int dataIndex = contacts.getColumnIndex(ContactsContract.Data.DATA1);
+                int normalizedNumberIndex = contacts.getColumnIndex(ContactsContract.Data.DATA4);
+                int nameIndex = contacts.getColumnIndex(ContactsContract.Data.DISPLAY_NAME);
                 while (!contacts.isAfterLast()) {
-                    Contact contact = new Contact();
-                    contact.name = contacts.getString(name);
-                    if (contacts.getInt(hasNumber) > 0) {
-                        getPhoneNumbers(contact, contacts.getString(lookupKeyIndex));
+                    String contactId = contacts.getString(contactIdIndex);
+                    boolean isNewContact = !contactArrayList.containsKey(contactId);
+                    Contact contact = isNewContact ? new Contact() : contactArrayList.get(contactId);
+                    contact.name = contacts.getString(nameIndex);
+                    String type = contacts.getString(typeIndex);
+                    if (type.equals(ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE)) {
+                        String num = contacts.getString(normalizedNumberIndex);
+                        if (TextUtils.isEmpty(num)) {
+                            num = contacts.getString(dataIndex);
+                        }
+                        if (!TextUtils.isEmpty(num)) {
+                            contact.numbers.add(num);
+                        }
+                    } else if (type.equals(ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE)){
+                        contact.emails.add(contacts.getString(dataIndex));
                     }
-                    getEmails(contact, contacts.getString(lookupKeyIndex));
-                    contactArrayList.add(contact);
+                    contactArrayList.put(contactId, contact);
                     contacts.moveToNext();
                 }
             }
@@ -72,67 +92,14 @@ public class ContactSyncService extends IntentService {
             if (contacts!=null) contacts.close();
         }
 
-        for (Contact contact : contactArrayList) {
+        for (Contact contact : contactArrayList.values()) {
             try {
                 Log.d(TAG, contact.toJson().toString(2));
             } catch (JSONException e) {
                 e.printStackTrace();
             }
         }
-    }
-
-    private void getEmails(Contact contact, String lookupId) {
-        String[] selectionArgs = {ContactsContract.CommonDataKinds.Email.ADDRESS};
-        Cursor cursor = null;
-        try {
-            cursor = getContentResolver().query(
-                    ContactsContract.CommonDataKinds.Email.CONTENT_URI,
-                    selectionArgs,
-                    ContactsContract.CommonDataKinds.Email.CONTACT_ID + " = ?",
-                    new String[]{lookupId},
-                    null);
-            if (cursor != null && cursor.moveToFirst()) {
-                while (!cursor.isAfterLast()) {
-                    contact.emails.add(cursor.getString(0));
-                    cursor.moveToNext();
-                }
-            }
-        } finally {
-            if (cursor != null) {
-                cursor.close();
-            }
-        }
-    }
-
-    private void getPhoneNumbers(Contact contact, String lookupId) {
-        String[] selectionArgs = {
-                ContactsContract.CommonDataKinds.Phone.NORMALIZED_NUMBER,
-                ContactsContract.CommonDataKinds.Phone.NUMBER
-        };
-        Cursor cursor = null;
-        try {
-            cursor = getContentResolver().query(
-                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                    selectionArgs,
-                    ContactsContract.CommonDataKinds.Phone.CONTACT_ID + " = ?",
-                    new String[]{lookupId},
-                    null);
-
-            if (cursor != null && cursor.moveToFirst()) {
-                int normalizedNumberIndex = cursor.getColumnIndex(selectionArgs[0]);
-                int numberIndex = cursor.getColumnIndex(selectionArgs[1]);
-                while (!cursor.isAfterLast()) {
-                    String num = cursor.getString(normalizedNumberIndex);
-                    if (TextUtils.isEmpty(num)) {
-                        num = cursor.getString(numberIndex);
-                    }
-                    contact.numbers.add(num);
-                    cursor.moveToNext();
-                }
-            }
-        } finally {
-            if (cursor != null) cursor.close();
-        }
+        Log.wtf(TAG, "this took: " + (System.currentTimeMillis() - now) + " millis to run");
     }
 
     private static class Contact {
