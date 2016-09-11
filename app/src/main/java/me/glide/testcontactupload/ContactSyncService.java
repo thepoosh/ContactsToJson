@@ -18,7 +18,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.zip.GZIPOutputStream;
 
@@ -60,13 +59,16 @@ public class ContactSyncService extends IntentService {
         };
 
         Cursor contacts = null;
-        HashMap<String, Contact> contactArrayList = new HashMap<String, Contact>();
         try {
             contacts = getContentResolver().query(ContactsContract.Data.CONTENT_URI, selectionArgs, Data.MIMETYPE + "=? OR " + Data.MIMETYPE + "=?",
                     new String[]{ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE, ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE},
                     Data.CONTACT_ID);
             ;
             if (contacts != null && contacts.moveToFirst()) {
+                final int size = contacts.getCount();
+                final StringBuilder sb = new StringBuilder(size * 35);
+                String currentContactId = "";
+                Contact contact = null;
                 int contactIdIndex = contacts.getColumnIndex(ContactsContract.Data.CONTACT_ID);
                 int typeIndex = contacts.getColumnIndex(ContactsContract.Data.MIMETYPE);
                 int dataIndex = contacts.getColumnIndex(ContactsContract.Data.DATA1);
@@ -74,9 +76,20 @@ public class ContactSyncService extends IntentService {
                 int nameIndex = contacts.getColumnIndex(ContactsContract.Data.DISPLAY_NAME);
                 while (!contacts.isAfterLast()) {
                     String contactId = contacts.getString(contactIdIndex);
-                    boolean isNewContact = !contactArrayList.containsKey(contactId);
-                    Contact contact = isNewContact ? new Contact() : contactArrayList.get(contactId);
-                    contact.name = contacts.getString(nameIndex);
+                    boolean isNewContact = !currentContactId.equals(contactId);
+                    if (isNewContact) {
+                        if (contact != null) {
+                            try {
+                                sb.append(contact.toJson()).append('\n');
+                            } catch (JSONException e) {
+                                Log.e(TAG, e.getMessage(), e);
+                            }
+                        }
+                        contact = new Contact();
+                        contact.name = contacts.getString(nameIndex);
+                        currentContactId = contactId;
+                    }
+
                     String type = contacts.getString(typeIndex);
                     if (type.equals(ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE)) {
                         String num = contacts.getString(normalizedNumberIndex);
@@ -89,29 +102,22 @@ public class ContactSyncService extends IntentService {
                     } else if (type.equals(ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE)){
                         contact.emails.add(contacts.getString(dataIndex));
                     }
-                    contactArrayList.put(contactId, contact);
+
                     contacts.moveToNext();
                 }
+
+
+                try {
+                    writeGzipedData(sb);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
             }
         }finally {
             if (contacts!=null) contacts.close();
         }
 
-        StringBuilder sb = new StringBuilder(contactArrayList.size() * 75);
-        for (Contact contact : contactArrayList.values()) {
-            try {
-                sb.append(contact.toJson().toString()).append('\n');
-            } catch (JSONException e) {
-                e.printStackTrace();
-            }
-        }
-        Log.w(TAG, "StringBuildSize = " + sb.length());
-
-        try {
-            writeGzipedData(sb);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
         Log.wtf(TAG, "this took: " + (System.currentTimeMillis() - now) + " millis to run");
     }
 
@@ -125,16 +131,6 @@ public class ContactSyncService extends IntentService {
         } finally {
             zip.close();
         }
-
-//
-//
-//        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(sb.length());
-//        GZIPOutputStream gzipOutputStream = new GZIPOutputStream(outputStream);
-//        gzipOutputStream.write(sb.toString().getBytes());
-//
-//        FileOutputStream os = new FileOutputStream(gzipContacts);
-//        Writer writer = new OutputStreamWriter(new GZIPOutputStream(os), "UTF-8");
-//        writer.write(sb.toString(), 0, sb.length());
 
     }
 
